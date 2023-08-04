@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package armctl;
+
+option cc_generic_services = true;
+
+import "google/protobuf/empty.proto";
+
+message Pose {
+    float x = 1;        // mm
+    float y = 2;        // mm
+    float theta = 3;
+}
+
+service Chasis {
+    rpc StartGetPose(google.protobuf.Empty) returns (google.protobuf.Empty) {}
+}
