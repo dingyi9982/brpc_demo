@@ -12,7 +12,7 @@ class StreamReceiver : public brpc::StreamInputHandler {
 public:
   virtual int on_received_messages(brpc::StreamId id,
                                    butil::IOBuf *const messages[],
-                                   size_t size) {
+                                   size_t size) override {
     std::ostringstream os;
     for (size_t i = 0; i < size; ++i) {
       armctl::Pose pose;
@@ -24,10 +24,10 @@ public:
     LOG(INFO) << "Received from Stream=" << id << ": " << os.str();
     return 0;
   }
-  virtual void on_idle_timeout(brpc::StreamId id) {
+  virtual void on_idle_timeout(brpc::StreamId id) override {
     LOG(INFO) << "Stream=" << id << " has no data transmission for a while";
   }
-  virtual void on_closed(brpc::StreamId id) {
+  virtual void on_closed(brpc::StreamId id) override {
     LOG(INFO) << "Stream=" << id << " is closed";
   }
 };
@@ -65,7 +65,7 @@ int main(int argc, char *argv[]) {
   }
   LOG(INFO) << "Created Stream=" << stream;
   google::protobuf::Empty empty;
-  stub.StartGetPose(&cntl, &empty, NULL, NULL);
+  stub.StartGetPose(&cntl, &empty, nullptr, nullptr);
   if (cntl.Failed()) {
     LOG(ERROR) << "Fail to connect stream, " << cntl.ErrorText();
     return -1;

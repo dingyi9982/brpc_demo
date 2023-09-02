@@ -31,7 +31,7 @@ class StreamReceiver : public brpc::StreamInputHandler {
 public:
   virtual int on_received_messages(brpc::StreamId id,
                                    butil::IOBuf *const messages[],
-                                   size_t size) {
+                                   size_t size) override {
     std::ostringstream os;
     for (size_t i = 0; i < size; ++i) {
       os << "msg[" << i << "]=" << *messages[i];
@@ -39,22 +39,27 @@ public:
     LOG(INFO) << "Received from Stream=" << id << ": " << os.str();
     return 0;
   }
-  virtual void on_idle_timeout(brpc::StreamId id) {
+  virtual void on_idle_timeout(brpc::StreamId id) override {
     LOG(INFO) << "Stream=" << id << " has no data transmission for a while";
   }
-  virtual void on_closed(brpc::StreamId id) {
+  virtual void on_closed(brpc::StreamId id) override {
     LOG(INFO) << "Stream=" << id << " is closed";
   }
+  bool IsClosed() { return is_closed; };
+
+private:
+  bool is_closed = false;
 };
 
 // Your implementation of armctl::ChasisControl
 class StreamingService : public armctl::Chasis {
 public:
-  StreamingService() : _sd(brpc::INVALID_STREAM_ID) {}
+  StreamingService() {}
   virtual ~StreamingService() {
-    brpc::StreamClose(_sd);
-    if (_th.joinable()) {
-      _th.join();
+    for (const auto &thread : threads_) {
+      if (thread->joinable()) {
+        thread->join();
+      }
     }
   }
   virtual void StartGetPose(google::protobuf::RpcController *controller,
@@ -66,15 +71,17 @@ public:
     brpc::ClosureGuard done_guard(done);
 
     brpc::Controller *cntl = static_cast<brpc::Controller *>(controller);
+    brpc::StreamId sd;
     brpc::StreamOptions stream_options;
-    stream_options.handler = &_receiver;
-    if (brpc::StreamAccept(&_sd, *cntl, &stream_options) != 0) {
+    std::shared_ptr<StreamReceiver> sr = std::make_shared<StreamReceiver>();
+    stream_options.handler = sr.get();
+    if (brpc::StreamAccept(&sd, *cntl, &stream_options) != 0) {
       cntl->SetFailed("Fail to accept stream");
       return;
     }
 
-    _th = std::thread([&]() {
-      while (!brpc::IsAskedToQuit()) {
+    threads_.emplace_back(new std::thread([cntl, sd, sr]() {
+      while (!brpc::IsAskedToQuit() && !sr->IsClosed()) {
         butil::IOBuf msg;
         armctl::Pose pose;
         pose.set_x(1.0f);
@@ -82,16 +89,15 @@ public:
         pose.set_theta(3.0f);
         butil::IOBufAsZeroCopyOutputStream wrapper(&msg);
         pose.SerializeToZeroCopyStream(&wrapper);
-        brpc::StreamWrite(_sd, msg);
+        brpc::StreamWrite(sd, msg);
         sleep(1);
       }
-    });
+      brpc::StreamClose(sd);
+    }));
   }
 
 private:
-  StreamReceiver _receiver;
-  brpc::StreamId _sd;
-  std::thread _th;
+  std::vector<std::unique_ptr<std::thread>> threads_;
 };
 
 int main(int argc, char *argv[]) {
